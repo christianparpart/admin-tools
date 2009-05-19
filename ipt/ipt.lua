@@ -1,7 +1,8 @@
 #! /usr/bin/env lua
 -- vim:ts=4
 
-CONFIG_FILE = '/etc/conf.d/ipt';
+-- CONFIG_FILE = '/etc/conf.d/ipt';
+CONFIG_FILE = '/etc/ipt.conf';
 IPTABLES = 'sudo iptables';
 SYSCTL = 'sudo sysctl';
 
@@ -9,6 +10,7 @@ fw = fw or {}
 
 -- {{{ helper
 fw.debug = true;
+fw.dryrun = false;
 phigh = '1024:65535';
 
 -- merges a set of tables
@@ -32,15 +34,33 @@ function iptables(...)
 		cmd = cmd .. ' ' .. tostring(arg);
 	end
 
-	if (fw.debug) then
+	if fw.debug then
 		print(cmd);
 	end
 
-	os.execute(cmd);
+	if not(fw.dryrun) then
+		os.execute(cmd);
+	end
+end
+
+function chainExists(table, chain)
+	local cmd = IPTABLES
+			 .. ' -t ' .. table .. ' -L ' .. chain
+			 .. ' &> /dev/null';
+
+	return os.execute(cmd) == 0;
+end
+function test()
+	if chainExists('filter', 'trash') then
+		print('yes');
+	else
+		print('no');
+	end
 end
 
 function sysctl(key, value)
 	local cmd = SYSCTL .. ' ' .. key .. '=' .. tostring(value);
+	cmd = cmd .. ' &>/dev/null';
 
 	os.execute(cmd);
 end
@@ -99,6 +119,9 @@ function none(r)
 end
 function drop(r)
 	iptables('-j', 'DROP');
+end
+function trash(r)
+	prule(tmerge(r, {target='trash'}));
 end
 function established(r)
 	r.topts = '-m state --state ESTABLISHED,RELATED';
@@ -185,6 +208,10 @@ function fw:process(chain, cname, table)
 			self:processRule(r);
 		end
 	end
+
+	if table == 'filter' then
+		iptables('-t', 'filter', '-A', cname, '-j', 'trash');
+	end
 end
 
 function fw:processRule(r)
@@ -220,6 +247,11 @@ end
 
 fw.start = function(self)
 	self:cleanup('DROP');
+
+	iptables('-t', 'filter', '-N', 'trash');
+	iptables('-t', 'filter', '-A', 'trash', '-j', 'LOG', '--log-prefix', '"trash: "');
+	iptables('-t', 'filter', '-A', 'trash', '-j', 'DROP');
+
 	self:process(input, 'INPUT', 'filter');
 	self:process(output, 'OUTPUT', 'filter');
 	self:process(forward, 'FORWARD', 'filter');
@@ -247,6 +279,10 @@ fw.cleanup = function(self, p)
 			reset(table, chain);
 		end
 	end
+	if chainExists('filter', 'trash') then
+		iptables('-t filter -F trash');
+		iptables('-t filter -X trash');
+	end
 end
 
 fw.status = function(self)
@@ -265,6 +301,8 @@ function main(args)
 		fw:stop();
 	elseif args[1] == "status" then
 		fw:status();
+	else
+		test();
 	end
 end
 
