@@ -156,6 +156,11 @@ end
 function dhcp(r)
 	prule(tmerge(r, {proto='udp', sport=phigh, dport='67:68'}));
 end
+function teamspeak(r)
+	prule(tmerge(r, {proto='udp', sport=phigh, dport='8767'}));
+	prule(tmerge(r, {proto='tcp', sport=phigh, dport='14534'}));
+	prule(tmerge(r, {proto='tcp', sport=phigh, dport='51234'}));
+end
 -- }}}
 
 -- default config
